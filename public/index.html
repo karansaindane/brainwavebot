@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Brainwave BCI — Real-time EEG & Motor Imagery Telemetry</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Space+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="logo-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M2 12h3l2-6 3 12 3-8 2 5 2-3h5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="brand-info">
+          <h1>BRAINWAVE // BCI MVP</h1>
+          <span class="subtitle">Synthetic 8-Channel EEG • Real-Time DSP • Motor Imagery Classifier</span>
+        </div>
+      </div>
+
+      <div class="header-status-group">
+        <div class="status-pill" id="wsPill">
+          <span class="led-dot" id="wsLed"></span>
+          <span class="status-label">SOCKET:</span>
+          <span class="status-val" id="wsStatus">CONNECTING</span>
+        </div>
+        <div class="status-pill" id="udpPill">
+          <span class="led-dot" id="udpLed"></span>
+          <span class="status-label">UDP INGEST:</span>
+          <span class="status-val" id="udpStatus">0 Hz</span>
+        </div>
+        <div class="header-actions">
+          <button id="calibrateBtn" class="btn btn-secondary" title="Re-calibrate Mu Baseline Power">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+            </svg>
+            Calibrate Baseline
+          </button>
+          <button id="audioToggleBtn" class="btn btn-icon" title="Toggle Audio Activation Alert">
+            <span id="audioIcon">🔊</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Content Layout -->
+    <main class="dashboard-main">
+      <!-- High-Impact Motor Imagery Event Trigger Banner -->
+      <section class="alert-section">
+        <div class="action-alert-box" id="actionAlertBox">
+          <div class="alert-indicator-glow"></div>
+          <div class="alert-icon-wrap">
+            <div class="pulse-ring"></div>
+            <span class="alert-icon-symbol" id="alertSymbol">⚡</span>
+          </div>
+          <div class="alert-content">
+            <div class="alert-badge" id="alertBadge">REST STATE</div>
+            <h2 class="alert-title" id="alertTitle">SENSORIMOTOR RHYTHM INTACT</h2>
+            <p class="alert-desc" id="alertDesc">
+              Channel 1 (C3 Motor Cortex) exhibits synchronous 10 Hz Alpha/Mu oscillations.
+            </p>
+          </div>
+          <div class="alert-metrics">
+            <div class="metric-block">
+              <span class="metric-label">ERD DESYNCHRONIZATION</span>
+              <span class="metric-value highlight" id="erdPercentVal">0.0%</span>
+            </div>
+            <div class="metric-block">
+              <span class="metric-label">EVENT COUNTER</span>
+              <span class="metric-value" id="eventCountVal">0</span>
+            </div>
+            <div class="metric-block">
+              <span class="metric-label">THRESHOLD</span>
+              <span class="metric-value" id="thresholdDisplay">40.0%</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Primary Telemetry Grid -->
+      <section class="telemetry-grid">
+        <!-- Live Waveform Chart (Channel 1 - C3) -->
+        <div class="card chart-card">
+          <div class="card-header">
+            <div class="card-title-group">
+              <span class="channel-tag">CH 1</span>
+              <h3>RAW EEG WAVEFORM (C3 - CONTRALATERAL MOTOR CORTEX)</h3>
+            </div>
+            <div class="chart-telemetry-readout">
+              <span class="readout-label">VOLTAGE:</span>
+              <span class="readout-val" id="voltageDisplay">+0.00 µV</span>
+            </div>
+          </div>
+
+          <div class="canvas-container">
+            <canvas id="eegCanvas" width="900" height="260"></canvas>
+            <div class="canvas-overlay-scale">
+              <span>+40 µV</span>
+              <span>0 µV</span>
+              <span>-40 µV</span>
+            </div>
+          </div>
+
+          <div class="card-footer-info">
+            <div class="info-pill">Window: 1.0s (250 Samples)</div>
+            <div class="info-pill">Signal Mix: 10Hz Mu + 18Hz Beta + 50Hz Mains</div>
+            <div class="info-pill" id="erdHighlightLabel">State: Idle</div>
+          </div>
+        </div>
+
+        <!-- Mu Band Power Meter & Classifier Control -->
+        <div class="card meter-card">
+          <div class="card-header">
+            <h3>MU BAND POWER (8 - 12 Hz)</h3>
+            <span class="dsp-tag">FFT DSP</span>
+          </div>
+
+          <div class="meter-body">
+            <!-- Digital Readouts -->
+            <div class="stats-row">
+              <div class="stat-box">
+                <span class="stat-label">CURRENT MU POWER</span>
+                <span class="stat-num" id="currentMuDisplay">0.00</span>
+                <span class="stat-unit">µV² / Hz</span>
+              </div>
+              <div class="stat-box">
+                <span class="stat-label">BASELINE AVERAGE</span>
+                <span class="stat-num" id="baselineMuDisplay">0.00</span>
+                <span class="stat-unit">µV² / Hz</span>
+              </div>
+            </div>
+
+            <!-- Dynamic Gauge / Progress Bar -->
+            <div class="gauge-container">
+              <div class="gauge-labels">
+                <span>0 µV²</span>
+                <span id="thresholdMarkerLabel">Threshold (-40%)</span>
+                <span>Baseline (100%)</span>
+              </div>
+              <div class="gauge-track">
+                <div class="gauge-fill" id="gaugeFill" style="width: 50%;"></div>
+                <div class="threshold-line" id="thresholdLine" style="left: 60%;" title="Detection Threshold: -40% from baseline"></div>
+              </div>
+            </div>
+
+            <!-- Interactive Sensitivity Slider -->
+            <div class="slider-control-group">
+              <div class="slider-header">
+                <label for="thresholdSlider">Detection Sensitivity (Drop %):</label>
+                <span class="slider-value" id="thresholdSliderVal">40%</span>
+              </div>
+              <input type="range" id="thresholdSlider" min="15" max="75" value="40" step="5">
+              <div class="slider-hint">
+                Triggers when Mu band power drops by ≥ <strong id="sliderHintVal">40%</strong> below baseline.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Secondary Telemetry Grid: Spectrum & Multi-Channel -->
+      <section class="secondary-grid">
+        <!-- Frequency Bands Spectral Breakdown -->
+        <div class="card spectrum-card">
+          <div class="card-header">
+            <h3>BRAINWAVE FREQUENCY BANDS (CHANNEL 1)</h3>
+            <span class="dsp-tag">HANN WINDOW FFT</span>
+          </div>
+
+          <div class="bands-bars-container">
+            <!-- Delta -->
+            <div class="band-bar-row">
+              <div class="band-info">
+                <span class="band-name">DELTA</span>
+                <span class="band-freq">1 - 4 Hz</span>
+              </div>
+              <div class="band-bar-track">
+                <div class="band-bar-fill delta-fill" id="deltaBar" style="width: 10%;"></div>
+              </div>
+              <span class="band-power-val" id="deltaVal">0.0</span>
+            </div>
+
+            <!-- Theta -->
+            <div class="band-bar-row">
+              <div class="band-info">
+                <span class="band-name">THETA</span>
+                <span class="band-freq">4 - 8 Hz</span>
+              </div>
+              <div class="band-bar-track">
+                <div class="band-bar-fill theta-fill" id="thetaBar" style="width: 15%;"></div>
+              </div>
+              <span class="band-power-val" id="thetaVal">0.0</span>
+            </div>
+
+            <!-- Mu / Alpha (Featured) -->
+            <div class="band-bar-row featured">
+              <div class="band-info">
+                <span class="band-name">MU / ALPHA 🎯</span>
+                <span class="band-freq">8 - 12 Hz</span>
+              </div>
+              <div class="band-bar-track">
+                <div class="band-bar-fill mu-fill" id="muBar" style="width: 80%;"></div>
+              </div>
+              <span class="band-power-val featured-val" id="muVal">0.0</span>
+            </div>
+
+            <!-- Beta -->
+            <div class="band-bar-row">
+              <div class="band-info">
+                <span class="band-name">BETA</span>
+                <span class="band-freq">12 - 30 Hz</span>
+              </div>
+              <div class="band-bar-track">
+                <div class="band-bar-fill beta-fill" id="betaBar" style="width: 35%;"></div>
+              </div>
+              <span class="band-power-val" id="betaVal">0.0</span>
+            </div>
+
+            <!-- Gamma -->
+            <div class="band-bar-row">
+              <div class="band-info">
+                <span class="band-name">GAMMA</span>
+                <span class="band-freq">30 - 50 Hz</span>
+              </div>
+              <div class="band-bar-track">
+                <div class="band-bar-fill gamma-fill" id="gammaBar" style="width: 5%;"></div>
+              </div>
+              <span class="band-power-val" id="gammaVal">0.0</span>
+            </div>
+
+            <!-- Powerline Noise -->
+            <div class="band-bar-row noise-row">
+              <div class="band-info">
+                <span class="band-name">50Hz MAINS</span>
+                <span class="band-freq">48 - 52 Hz</span>
+              </div>
+              <div class="band-bar-track">
+                <div class="band-bar-fill noise-fill" id="mainsBar" style="width: 25%;"></div>
+              </div>
+              <span class="band-power-val" id="mainsVal">0.0</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 8-Channel Headset Array Monitor -->
+        <div class="card channels-card">
+          <div class="card-header">
+            <h3>8-CHANNEL HEADSET ARRAY</h3>
+            <span class="dsp-tag">250 Hz UDP</span>
+          </div>
+
+          <div class="channels-grid" id="channelsGrid">
+            <!-- 8 channels dynamically populated or static slots -->
+            <div class="channel-slot active-ch" id="chSlot-0">
+              <div class="slot-header">
+                <span class="slot-name">CH 1 (C3)</span>
+                <span class="slot-state">MOTOR</span>
+              </div>
+              <div class="slot-volt" id="chVolt-0">+0.0 µV</div>
+              <div class="slot-bar-track"><div class="slot-bar-fill" id="chFill-0"></div></div>
+            </div>
+
+            <div class="channel-slot" id="chSlot-1">
+              <div class="slot-header">
+                <span class="slot-name">CH 2 (Cz)</span>
+                <span class="slot-state">VERTEX</span>
+              </div>
+              <div class="slot-volt" id="chVolt-1">+0.0 µV</div>
+              <div class="slot-bar-track"><div class="slot-bar-fill" id="chFill-1"></div></div>
+            </div>
+
+            <div class="channel-slot" id="chSlot-2">
+              <div class="slot-header">
+                <span class="slot-name">CH 3 (C4)</span>
+                <span class="slot-state">MOTOR</span>
+              </div>
+              <div class="slot-volt" id="chVolt-2">+0.0 µV</div>
+              <div class="slot-bar-track"><div class="slot-bar-fill" id="chFill-2"></div></div>
+            </div>
+
+            <div class="channel-slot" id="chSlot-3">
+              <div class="slot-header">
+                <span class="slot-name">CH 4 (F3)</span>
+                <span class="slot-state">FRONTAL</span>
+              </div>
+              <div class="slot-volt" id="chVolt-3">+0.0 µV</div>
+              <div class="slot-bar-track"><div class="slot-bar-fill" id="chFill-3"></div></div>
+            </div>
+
+            <div class="channel-slot" id="chSlot-4">
+              <div class="slot-header">
+                <span class="slot-name">CH 5 (F4)</span>
+                <span class="slot-state">FRONTAL</span>
+              </div>
+              <div class="slot-volt" id="chVolt-4">+0.0 µV</div>
+              <div class="slot-bar-track"><div class="slot-bar-fill" id="chFill-4"></div></div>
+            </div>
+
+            <div class="channel-slot" id="chSlot-5">
+              <div class="slot-header">
+                <span class="slot-name">CH 6 (P3)</span>
+                <span class="slot-state">PARIETAL</span>
+              </div>
+              <div class="slot-volt" id="chVolt-5">+0.0 µV</div>
+              <div class="slot-bar-track"><div class="slot-bar-fill" id="chFill-5"></div></div>
+            </div>
+
+            <div class="channel-slot" id="chSlot-6">
+              <div class="slot-header">
+                <span class="slot-name">CH 7 (P4)</span>
+                <span class="slot-state">PARIETAL</span>
+              </div>
+              <div class="slot-volt" id="chVolt-6">+0.0 µV</div>
+              <div class="slot-bar-track"><div class="slot-bar-fill" id="chFill-6"></div></div>
+            </div>
+
+            <div class="channel-slot" id="chSlot-7">
+              <div class="slot-header">
+                <span class="slot-name">CH 8 (Oz)</span>
+                <span class="slot-state">OCCIPITAL</span>
+              </div>
+              <div class="slot-volt" id="chVolt-7">+0.0 µV</div>
+              <div class="slot-bar-track"><div class="slot-bar-fill" id="chFill-7"></div></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Event Activity Log -->
+      <section class="card log-card">
+        <div class="card-header">
+          <h3>BCI EVENT CLASSIFICATION LOG</h3>
+          <button id="clearLogBtn" class="btn btn-sm">Clear History</button>
+        </div>
+        <div class="log-stream" id="logStream">
+          <div class="log-entry system-msg">
+            <span class="log-time">[System]</span>
+            <span class="log-text">Dashboard loaded. Connecting to Socket.io backend...</span>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <div class="footer-col">
+        <span>Hardware Simulator: <code>python simulator/synthetic_headset.py</code></span>
+      </div>
+      <div class="footer-col">
+        <span>UDP Ingest: <code>127.0.0.1:3001</code> | Web Server: <code>http://localhost:3000</code></span>
+      </div>
+      <div class="footer-col">
+        <span>DSP: Radix-2 FFT (256-pt, Hann window, 8-12 Hz Mu band)</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Socket.io client script served by the backend -->
+  <script src="/socket.io/socket.io.js"></script>
+  <!-- Main application script -->
+  <script src="app.js"></script>
+</body>
+</html>
+

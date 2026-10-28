@@ -1,0 +1,29 @@
+{
+  "name": "brainwave-bci-mvp",
+  "version": "1.0.0",
+  "description": "Brain-Computer Interface (BCI) MVP - 8-Channel Synthetic EEG Streaming, FFT DSP, and Motor Imagery Detection",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "server": "node server/index.js",
+    "simulator": "python3 simulator/synthetic_headset.py"
+  },
+  "keywords": [
+    "bci",
+    "brain-computer-interface",
+    "eeg",
+    "signal-processing",
+    "fft",
+    "motor-imagery",
+    "neurotechnology",
+    "socket.io",
+    "express"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}
+
