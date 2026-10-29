@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server/index.js",
     "server": "node server/index.js",
-    "simulator": "python3 simulator/synthetic_headset.py"
+    "simulator": "python3 simulator/synthetic_headset.py",
+    "test": "node test.js"
   },
   "keywords": [
     "bci",
