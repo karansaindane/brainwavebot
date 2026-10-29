@@ -1,94 +1,98 @@
 /**
- * Brainwave BCI Frontend Application
- *
- * Real-time features:
- * - Socket.io live streaming client
- * - High-DPI Canvas EEG Oscilloscope with phosphor glow & auto-scroll
- * - Real-time Mu Band Power gauge & dynamic threshold marker
- * - High-visibility "Action Triggered" Motor Imagery indicator
- * - Multi-band spectral bars (Delta, Theta, Mu, Beta, Gamma, Mains)
- * - 8-Channel electrode matrix
- * - Web Audio API BCI activation chime
+ * Brainwave 2-Class BCI Frontend Application
+ * Real-time Directional Motor Imagery (Left Hand vs. Right Hand vs. Rest)
  */
 
 (() => {
   'use strict';
 
-  // ==========================================
   // DOM Elements
-  // ==========================================
   const wsStatusEl = document.getElementById('wsStatus');
   const wsLedEl = document.getElementById('wsLed');
   const udpStatusEl = document.getElementById('udpStatus');
   const udpLedEl = document.getElementById('udpLed');
 
-  const actionAlertBox = document.getElementById('actionAlertBox');
-  const alertBadge = document.getElementById('alertBadge');
-  const alertTitle = document.getElementById('alertTitle');
-  const alertDesc = document.getElementById('alertDesc');
-  const alertSymbol = document.getElementById('alertSymbol');
-  const erdPercentVal = document.getElementById('erdPercentVal');
-  const eventCountVal = document.getElementById('eventCountVal');
-  const thresholdDisplay = document.getElementById('thresholdDisplay');
+  // Directional Action Cards
+  const cardLeftHand = document.getElementById('cardLeftHand');
+  const cardRest = document.getElementById('cardRest');
+  const cardRightHand = document.getElementById('cardRightHand');
 
-  const voltageDisplay = document.getElementById('voltageDisplay');
-  const erdHighlightLabel = document.getElementById('erdHighlightLabel');
+  const statLeftDrop = document.getElementById('statLeftDrop');
+  const statRightDrop = document.getElementById('statRightDrop');
+  const statRestStatus = document.getElementById('statRestStatus');
 
-  const currentMuDisplay = document.getElementById('currentMuDisplay');
-  const baselineMuDisplay = document.getElementById('baselineMuDisplay');
-  const gaugeFill = document.getElementById('gaugeFill');
-  const thresholdLine = document.getElementById('thresholdLine');
-  const thresholdMarkerLabel = document.getElementById('thresholdMarkerLabel');
-  const thresholdSlider = document.getElementById('thresholdSlider');
-  const thresholdSliderVal = document.getElementById('thresholdSliderVal');
-  const sliderHintVal = document.getElementById('sliderHintVal');
+  // Lateralization Meter
+  const liValueDisplay = document.getElementById('liValueDisplay');
+  const liThresholdDisplay = document.getElementById('liThresholdDisplay');
+  const countRightVal = document.getElementById('countRightVal');
+  const countLeftVal = document.getElementById('countLeftVal');
+  const liNeedle = document.getElementById('liNeedle');
+  const threshLeftLine = document.getElementById('threshLeftLine');
+  const threshRightLine = document.getElementById('threshRightLine');
 
+  const liSlider = document.getElementById('liSlider');
+  const liSliderVal = document.getElementById('liSliderVal');
+  const hintRightVal = document.getElementById('hintRightVal');
+  const hintLeftVal = document.getElementById('hintLeftVal');
+
+  // Dual Voltage Displays
+  const c3VoltDisplay = document.getElementById('c3VoltDisplay');
+  const c4VoltDisplay = document.getElementById('c4VoltDisplay');
+  const currentActionLabel = document.getElementById('currentActionLabel');
+
+  // Dual Mu Power Blocks
+  const c3PowerVal = document.getElementById('c3PowerVal');
+  const c3BaseVal = document.getElementById('c3BaseVal');
+  const c3DropVal = document.getElementById('c3DropVal');
+  const c3GaugeFill = document.getElementById('c3GaugeFill');
+
+  const c4PowerVal = document.getElementById('c4PowerVal');
+  const c4BaseVal = document.getElementById('c4BaseVal');
+  const c4DropVal = document.getElementById('c4DropVal');
+  const c4GaugeFill = document.getElementById('c4GaugeFill');
+
+  // Canvas
+  const canvas = document.getElementById('eegCanvas');
+  const ctx = canvas.getContext('2d');
+
+  // Buttons & Controls
   const calibrateBtn = document.getElementById('calibrateBtn');
   const audioToggleBtn = document.getElementById('audioToggleBtn');
   const audioIcon = document.getElementById('audioIcon');
   const clearLogBtn = document.getElementById('clearLogBtn');
   const logStream = document.getElementById('logStream');
 
-  // Spectral band elements
+  // Spectral band bars
   const deltaBar = document.getElementById('deltaBar');
   const thetaBar = document.getElementById('thetaBar');
   const muBar = document.getElementById('muBar');
   const betaBar = document.getElementById('betaBar');
-  const gammaBar = document.getElementById('gammaBar');
   const mainsBar = document.getElementById('mainsBar');
 
   const deltaVal = document.getElementById('deltaVal');
   const thetaVal = document.getElementById('thetaVal');
   const muVal = document.getElementById('muVal');
   const betaVal = document.getElementById('betaVal');
-  const gammaVal = document.getElementById('gammaVal');
   const mainsVal = document.getElementById('mainsVal');
 
-  // Canvas
-  const canvas = document.getElementById('eegCanvas');
-  const ctx = canvas.getContext('2d');
-
-  // ==========================================
-  // Application State
-  // ==========================================
+  // App State
   let isAudioEnabled = true;
-  let isMotorImageryActive = false;
-  let currentThreshold = 40.0;
-  let currentBaseline = 100.0;
+  let currentClassification = 'REST';
+  let currentLIThreshold = 0.35;
   let audioCtx = null;
 
-  // Circular Waveform Buffer for Canvas Display (~2.5 seconds = 625 samples at 250Hz)
-  const MAX_WAVEFORM_POINTS = 625;
-  const waveformBuffer = new Float32Array(MAX_WAVEFORM_POINTS);
-  let waveformCount = 0;
+  // Dual Circular Buffers for Canvas (625 points = ~2.5s @ 250Hz)
+  const MAX_POINTS = 625;
+  const bufferC3 = new Float32Array(MAX_POINTS);
+  const bufferC4 = new Float32Array(MAX_POINTS);
+  let bufferCount = 0;
 
-  // Maximum expected voltage for canvas Y-axis scale (+- 40 uV)
-  const VOLTAGE_SCALE_UV = 40.0;
+  const VOLTAGE_SCALE = 40.0; // +- 40 uV
 
   // ==========================================
-  // Web Audio API Synthesizer (BCI Activation Sound)
+  // Spatial Audio Feedback (Stereo Pan)
   // ==========================================
-  function playActivationSound() {
+  function playDirectionalTone(direction) {
     if (!isAudioEnabled) return;
     try {
       if (!audioCtx) {
@@ -99,38 +103,47 @@
       }
 
       const now = audioCtx.currentTime;
-      // High-tech two-tone frequency chime
-      const osc1 = audioCtx.createOscillator();
-      const osc2 = audioCtx.createOscillator();
+      const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
 
-      osc1.type = 'sine';
-      osc2.type = 'triangle';
+      let panNode = null;
+      if (audioCtx.createStereoPanner) {
+        panNode = audioCtx.createStereoPanner();
+      }
 
-      osc1.frequency.setValueAtTime(587.33, now); // D5
-      osc1.frequency.exponentialRampToValueAtTime(880.0, now + 0.12); // A5
-
-      osc2.frequency.setValueAtTime(293.66, now); // D4
-      osc2.frequency.exponentialRampToValueAtTime(440.0, now + 0.12);
+      if (direction === 'RIGHT_HAND') {
+        // High frequency chime (Right Ear)
+        osc.frequency.setValueAtTime(659.25, now); // E5
+        osc.frequency.exponentialRampToValueAtTime(880.0, now + 0.12); // A5
+        if (panNode) panNode.pan.setValueAtTime(0.85, now); // Pan Right
+      } else if (direction === 'LEFT_HAND') {
+        // Lower frequency chime (Left Ear)
+        osc.frequency.setValueAtTime(440.0, now); // A4
+        osc.frequency.exponentialRampToValueAtTime(329.63, now + 0.12); // E4
+        if (panNode) panNode.pan.setValueAtTime(-0.85, now); // Pan Left
+      } else {
+        return;
+      }
 
       gain.gain.setValueAtTime(0.18, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
 
-      osc1.connect(gain);
-      osc2.connect(gain);
-      gain.connect(audioCtx.destination);
+      if (panNode) {
+        osc.connect(gain);
+        gain.connect(panNode);
+        panNode.connect(audioCtx.destination);
+      } else {
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+      }
 
-      osc1.start(now);
-      osc2.start(now);
-      osc1.stop(now + 0.35);
-      osc2.stop(now + 0.35);
-    } catch (e) {
-      // Audio not permitted without user gesture or unsupported
-    }
+      osc.start(now);
+      osc.stop(now + 0.3);
+    } catch (e) {}
   }
 
   // ==========================================
-  // High-DPI Canvas Setup & Resizing
+  // Canvas Setup & Rendering Loop
   // ==========================================
   function setupCanvasDPI() {
     const rect = canvas.getBoundingClientRect();
@@ -143,9 +156,6 @@
   window.addEventListener('resize', setupCanvasDPI);
   setupCanvasDPI();
 
-  // ==========================================
-  // 60 FPS Canvas Oscilloscope Renderer
-  // ==========================================
   function renderOscilloscope() {
     const rect = canvas.getBoundingClientRect();
     const width = rect.width;
@@ -155,106 +165,82 @@
     ctx.save();
     ctx.clearRect(0, 0, width, height);
 
-    // Subtle background tint shift when ERD is active
-    if (isMotorImageryActive) {
-      ctx.fillStyle = 'rgba(255, 46, 99, 0.08)';
+    // Background tint by state
+    if (currentClassification === 'RIGHT_HAND') {
+      ctx.fillStyle = 'rgba(0, 242, 254, 0.06)';
+      ctx.fillRect(0, 0, width, height);
+    } else if (currentClassification === 'LEFT_HAND') {
+      ctx.fillStyle = 'rgba(244, 63, 94, 0.06)';
       ctx.fillRect(0, 0, width, height);
     }
 
-    // Draw horizontal grid lines
+    // Grid lines
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
     ctx.lineWidth = 1;
 
-    // +20 uV and -20 uV lines
     const yQuarter = height / 4;
     ctx.beginPath();
-    ctx.moveTo(0, yQuarter);
-    ctx.lineTo(width, yQuarter);
-    ctx.moveTo(0, height - yQuarter);
-    ctx.lineTo(width, height - yQuarter);
+    ctx.moveTo(0, yQuarter); ctx.lineTo(width, yQuarter);
+    ctx.moveTo(0, height - yQuarter); ctx.lineTo(width, height - yQuarter);
     ctx.stroke();
 
-    // Center zero-voltage reference line (dashed)
-    ctx.strokeStyle = 'rgba(0, 242, 254, 0.25)';
+    // Center zero dashed line
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
-    ctx.moveTo(0, midY);
-    ctx.lineTo(width, midY);
+    ctx.moveTo(0, midY); ctx.lineTo(width, midY);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Draw vertical time grid lines (every 100px)
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
-    for (let x = 100; x < width; x += 100) {
+    if (bufferCount > 1) {
+      const step = width / (MAX_POINTS - 1);
+      const points = Math.min(bufferCount, MAX_POINTS);
+      const startX = width - (points - 1) * step;
+
+      // Draw Channel 3: C4 (Right Brain / Left Hand) in Magenta
       ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height);
-      ctx.stroke();
-    }
-
-    // Draw EEG Waveform
-    if (waveformCount > 1) {
-      const step = width / (MAX_WAVEFORM_POINTS - 1);
-      const pointsToDraw = Math.min(waveformCount, MAX_WAVEFORM_POINTS);
-      const startX = width - (pointsToDraw - 1) * step;
-
-      ctx.beginPath();
-
-      for (let i = 0; i < pointsToDraw; i++) {
-        // Read oldest to newest
-        const val = waveformBuffer[i];
-        // Normalize val to canvas height: +VOLTAGE_SCALE_UV at top, -VOLTAGE_SCALE_UV at bottom
-        const y = midY - (val / VOLTAGE_SCALE_UV) * (height / 2 - 15);
+      for (let i = 0; i < points; i++) {
+        const y = midY - (bufferC4[i] / VOLTAGE_SCALE) * (height / 2 - 15);
         const x = startX + i * step;
-
-        if (i === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
       }
-
-      // Neon Phosphor Waveform Styling
-      if (isMotorImageryActive) {
-        ctx.strokeStyle = '#ff2e63';
-        ctx.shadowColor = '#ff2e63';
-        ctx.shadowBlur = 10;
-      } else {
-        ctx.strokeStyle = '#00f2fe';
-        ctx.shadowColor = '#00f2fe';
-        ctx.shadowBlur = 8;
-      }
-
-      ctx.lineWidth = 2.0;
+      ctx.strokeStyle = '#f43f5e';
+      ctx.shadowColor = '#f43f5e';
+      ctx.shadowBlur = 6;
+      ctx.lineWidth = 1.8;
       ctx.stroke();
 
-      // Current beam head dot
-      const latestVal = waveformBuffer[pointsToDraw - 1];
-      const headY = midY - (latestVal / VOLTAGE_SCALE_UV) * (height / 2 - 15);
+      // Draw Channel 1: C3 (Left Brain / Right Hand) in Cyan
       ctx.beginPath();
-      ctx.arc(width - 2, headY, 4, 0, Math.PI * 2);
-      ctx.fillStyle = '#ffffff';
-      ctx.shadowColor = isMotorImageryActive ? '#ff2e63' : '#00f2fe';
-      ctx.shadowBlur = 12;
-      ctx.fill();
+      for (let i = 0; i < points; i++) {
+        const y = midY - (bufferC3[i] / VOLTAGE_SCALE) * (height / 2 - 15);
+        const x = startX + i * step;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.strokeStyle = '#00f2fe';
+      ctx.shadowColor = '#00f2fe';
+      ctx.shadowBlur = 6;
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
     }
 
     ctx.restore();
     requestAnimationFrame(renderOscilloscope);
   }
 
-  // Start oscilloscope rendering loop
   requestAnimationFrame(renderOscilloscope);
 
   // ==========================================
-  // Socket.io Connection & Streaming
+  // Socket.io Connection & Telemetry
   // ==========================================
   const socket = io();
 
   socket.on('connect', () => {
     wsStatusEl.textContent = 'ONLINE';
     wsLedEl.classList.add('active');
-    appendLog('system-msg', `Connected to BCI server via WebSocket (ID: ${socket.id})`);
+    appendLog('system-msg', `Connected to 2-Class BCI Server (ID: ${socket.id})`);
   });
 
   socket.on('disconnect', () => {
@@ -262,124 +248,116 @@
     wsLedEl.classList.remove('active');
     udpStatusEl.textContent = 'OFFLINE';
     udpLedEl.classList.remove('active');
-    appendLog('system-msg', 'Disconnected from BCI server. Reconnecting...');
+    appendLog('system-msg', 'Server disconnected. Reconnecting...');
   });
 
-  socket.on('connect_error', () => {
-    wsStatusEl.textContent = 'RETRYING...';
-    wsLedEl.classList.remove('active');
-  });
-
-  // Dedicated High-Priority Motor Imagery Event Trigger
-  socket.on('motor-imagery', (evt) => {
-    if (evt.state === 'TRIGGERED') {
-      isMotorImageryActive = true;
-      playActivationSound();
-      appendLog(
-        'trigger',
-        `⚡ MOTOR IMAGERY DETECTED: -${evt.dropPercentage}% Mu drop (Power: ${evt.muPower} vs Base: ${evt.baseline})`
-      );
+  // Dedicated Action Transition Event
+  socket.on('bci-action', (evt) => {
+    if (evt.action === 'RIGHT_HAND') {
+      playDirectionalTone('RIGHT_HAND');
+      appendLog('right-hand', `➔ RIGHT HAND DETECTED! (LI: +${evt.lateralizationIndex.toFixed(2)}, C3 Drop: -${evt.c3Drop}%)`);
+    } else if (evt.action === 'LEFT_HAND') {
+      playDirectionalTone('LEFT_HAND');
+      appendLog('left-hand', `⬅ LEFT HAND DETECTED! (LI: ${evt.lateralizationIndex.toFixed(2)}, C4 Drop: -${evt.c4Drop}%)`);
     } else {
-      isMotorImageryActive = false;
-      appendLog(
-        'release',
-        `✓ Rest restored: Mu power normalized (-${evt.dropPercentage}% drop)`
-      );
+      appendLog('rest', `⚖ Sensorimotor Rhythms Balanced (Rest State)`);
     }
   });
 
-  // Core Real-Time Telemetry Payload (30 FPS)
+  // 30 FPS Telemetry Stream
   socket.on('bci-data', (data) => {
-    // 1. Update Ingest Status & Hardware Rate
+    // 1. Ingest rate
     if (data.stats && data.stats.sampleRate > 0) {
       udpStatusEl.textContent = `${data.stats.sampleRate} Hz`;
       udpLedEl.classList.add('active');
-    } else {
-      udpStatusEl.textContent = 'WAITING';
-      udpLedEl.classList.remove('active');
     }
 
-    // 2. Ingest recent samples into canvas circular waveform buffer
-    if (data.samples && data.samples.length > 0) {
-      for (let s = 0; s < data.samples.length; s++) {
-        const val = data.samples[s];
-        if (waveformCount < MAX_WAVEFORM_POINTS) {
-          waveformBuffer[waveformCount++] = val;
+    // 2. Buffer recent samples for C3 and C4
+    if (data.samplesC3 && data.samplesC4) {
+      const len = Math.min(data.samplesC3.length, data.samplesC4.length);
+      for (let s = 0; s < len; s++) {
+        if (bufferCount < MAX_POINTS) {
+          bufferC3[bufferCount] = data.samplesC3[s];
+          bufferC4[bufferCount] = data.samplesC4[s];
+          bufferCount++;
         } else {
-          // Shift left by 1
-          waveformBuffer.copyWithin(0, 1);
-          waveformBuffer[MAX_WAVEFORM_POINTS - 1] = val;
+          bufferC3.copyWithin(0, 1);
+          bufferC4.copyWithin(0, 1);
+          bufferC3[MAX_POINTS - 1] = data.samplesC3[s];
+          bufferC4[MAX_POINTS - 1] = data.samplesC4[s];
         }
       }
     }
 
-    // 3. Instantaneous Channel 1 Voltage Display
-    if (typeof data.voltage === 'number') {
-      const sign = data.voltage >= 0 ? '+' : '';
-      voltageDisplay.textContent = `${sign}${data.voltage.toFixed(2)} µV`;
-    }
+    // 3. Update Classification HUD
+    currentClassification = data.classification;
 
-    // 4. Update Motor Imagery Action Alert UI
-    const isTriggered = data.isMotorImagery;
-    isMotorImageryActive = isTriggered;
+    cardLeftHand.classList.remove('active');
+    cardRest.classList.remove('active');
+    cardRightHand.classList.remove('active');
 
-    if (isTriggered) {
-      actionAlertBox.className = 'action-alert-box state-triggered';
-      alertBadge.textContent = '⚡ ACTION TRIGGERED';
-      alertTitle.textContent = 'MOTOR IMAGERY DETECTED';
-      alertDesc.textContent =
-        'Contralateral Hand Movement Intent Recognized (Sensorimotor Rhythm ERD Active)';
-      alertSymbol.textContent = '⚡';
-      erdHighlightLabel.textContent = 'State: ⚡ ERD ACTIVE (-80% 10Hz)';
-      erdHighlightLabel.style.color = 'var(--neon-coral)';
+    if (currentClassification === 'LEFT_HAND') {
+      cardLeftHand.classList.add('active');
+      currentActionLabel.textContent = 'Current State: ⬅ LEFT HAND (Right Brain C4 ERD Active)';
+      currentActionLabel.style.color = 'var(--c4-color)';
+    } else if (currentClassification === 'RIGHT_HAND') {
+      cardRightHand.classList.add('active');
+      currentActionLabel.textContent = 'Current State: ➔ RIGHT HAND (Left Brain C3 ERD Active)';
+      currentActionLabel.style.color = 'var(--c3-color)';
     } else {
-      actionAlertBox.className = 'action-alert-box state-idle';
-      alertBadge.textContent = 'REST STATE';
-      alertTitle.textContent = 'SENSORIMOTOR RHYTHM INTACT';
-      alertDesc.textContent =
-        'Channel 1 (C3 Motor Cortex) exhibits synchronous 10 Hz Alpha/Mu oscillations.';
-      alertSymbol.textContent = '🧠';
-      erdHighlightLabel.textContent = 'State: Idle Rest';
-      erdHighlightLabel.style.color = 'var(--text-dim)';
+      cardRest.classList.add('active');
+      currentActionLabel.textContent = 'Current State: ⚖ BALANCED REST';
+      currentActionLabel.style.color = 'var(--rest-color)';
     }
 
-    erdPercentVal.textContent = `${data.dropPercentage.toFixed(1)}%`;
-    if (data.stats && typeof data.stats.eventCount === 'number') {
-      eventCountVal.textContent = data.stats.eventCount;
+    // Drops stats on HUD
+    statLeftDrop.textContent = `${data.c4.dropPercentage.toFixed(1)}%`;
+    statRightDrop.textContent = `${data.c3.dropPercentage.toFixed(1)}%`;
+
+    // 4. Update Lateralization Needle (-1.0 to +1.0 mapped to 0% to 100%)
+    const li = data.lateralizationIndex;
+    liValueDisplay.textContent = (li >= 0 ? '+' : '') + li.toFixed(3);
+    const needlePct = Math.min(Math.max(((li + 1.0) / 2.0) * 100.0, 3.0), 97.0);
+    liNeedle.style.left = `${needlePct}%`;
+
+    // Counter stats
+    if (data.stats && data.stats.counts) {
+      countRightVal.textContent = data.stats.counts.rightHand;
+      countLeftVal.textContent = data.stats.counts.leftHand;
     }
 
-    // 5. Update Mu Band Power Meter & Gauge
-    currentBaseline = data.baseline || currentBaseline;
-    currentMuDisplay.textContent = data.muPower.toFixed(2);
-    baselineMuDisplay.textContent = currentBaseline.toFixed(2);
+    // 5. Voltages
+    const signC3 = data.c3.voltage >= 0 ? '+' : '';
+    const signC4 = data.c4.voltage >= 0 ? '+' : '';
+    c3VoltDisplay.textContent = `C3: ${signC3}${data.c3.voltage.toFixed(2)} µV`;
+    c4VoltDisplay.textContent = `C4: ${signC4}${data.c4.voltage.toFixed(2)} µV`;
 
-    // Percentage of current power relative to baseline
-    const powerRatio = currentBaseline > 0 ? (data.muPower / currentBaseline) : 1.0;
-    const clampedGaugePct = Math.min(Math.max(powerRatio * 100.0, 3.0), 100.0);
-    gaugeFill.style.width = `${clampedGaugePct}%`;
+    // 6. Dual Mu Gauges
+    c3PowerVal.textContent = `${data.c3.muPower.toFixed(1)} µV²`;
+    c3BaseVal.textContent = `${data.c3.baseline.toFixed(1)}`;
+    c3DropVal.textContent = `${data.c3.dropPercentage.toFixed(1)}%`;
+    const c3Ratio = data.c3.baseline > 0 ? (data.c3.muPower / data.c3.baseline) : 1.0;
+    c3GaugeFill.style.width = `${Math.min(Math.max(c3Ratio * 100.0, 4.0), 100.0)}%`;
 
-    if (isTriggered) {
-      gaugeFill.classList.add('desynced');
-    } else {
-      gaugeFill.classList.remove('desynced');
-    }
+    c4PowerVal.textContent = `${data.c4.muPower.toFixed(1)} µV²`;
+    c4BaseVal.textContent = `${data.c4.baseline.toFixed(1)}`;
+    c4DropVal.textContent = `${data.c4.dropPercentage.toFixed(1)}%`;
+    const c4Ratio = data.c4.baseline > 0 ? (data.c4.muPower / data.c4.baseline) : 1.0;
+    c4GaugeFill.style.width = `${Math.min(Math.max(c4Ratio * 100.0, 4.0), 100.0)}%`;
 
-    // 6. Spectral Frequency Bands Breakdown
-    if (data.bandPowers) {
-      const bp = data.bandPowers;
-      // Find max power among bands for relative visualization scaling
-      const maxBand = Math.max(bp.delta, bp.theta, bp.mu, bp.beta, bp.gamma, bp.mains, 10.0);
-
+    // 7. Spectral Bands (C3)
+    if (data.c3.bandPowers) {
+      const bp = data.c3.bandPowers;
+      const maxBand = Math.max(bp.delta, bp.theta, bp.mu, bp.beta, bp.mains, 10.0);
       updateBandBar(deltaBar, deltaVal, bp.delta, maxBand);
       updateBandBar(thetaBar, thetaVal, bp.theta, maxBand);
       updateBandBar(muBar, muVal, bp.mu, maxBand);
       updateBandBar(betaBar, betaVal, bp.beta, maxBand);
-      updateBandBar(gammaBar, gammaVal, bp.gamma, maxBand);
       updateBandBar(mainsBar, mainsVal, bp.mains, maxBand);
     }
 
-    // 7. 8-Channel Electrode Array Matrix Readout
-    if (data.allChannels && data.allChannels.length >= 8) {
+    // 8. 8-Channel Matrix
+    if (data.allChannels) {
       for (let ch = 0; ch < 8; ch++) {
         const v = data.allChannels[ch];
         const vEl = document.getElementById(`chVolt-${ch}`);
@@ -387,7 +365,6 @@
         if (vEl && fEl) {
           const s = v >= 0 ? '+' : '';
           vEl.textContent = `${s}${v.toFixed(1)} µV`;
-          // Map [-30, +30] uV to [5%, 95%] fill width
           const norm = Math.min(Math.max(((v + 30.0) / 60.0) * 100.0, 5.0), 95.0);
           fEl.style.width = `${norm}%`;
         }
@@ -403,53 +380,47 @@
   }
 
   // ==========================================
-  // User Controls & Interaction
+  // User Controls
   // ==========================================
-
-  // 1. Re-Calibrate Baseline Button
   calibrateBtn.addEventListener('click', () => {
     socket.emit('calibrate');
-    appendLog('system-msg', 'User requested baseline recalibration.');
+    appendLog('system-msg', 'User requested bilateral baseline calibration.');
   });
 
   socket.on('calibrated', (res) => {
-    appendLog('system-msg', `New baseline established: ${res.baseline.toFixed(2)} µV²`);
+    appendLog('system-msg', `Baselines calibrated -> C3: ${res.baselineC3.toFixed(1)} µV², C4: ${res.baselineC4.toFixed(1)} µV²`);
   });
 
-  // 2. Sensitivity Slider
-  thresholdSlider.addEventListener('input', (e) => {
+  liSlider.addEventListener('input', (e) => {
     const val = parseFloat(e.target.value);
-    currentThreshold = val;
-    thresholdSliderVal.textContent = `${val}%`;
-    sliderHintVal.textContent = `${val}%`;
-    thresholdDisplay.textContent = `${val.toFixed(1)}%`;
-    thresholdMarkerLabel.textContent = `Threshold (-${val}%)`;
+    currentLIThreshold = val;
+    liSliderVal.textContent = `±${val.toFixed(2)}`;
+    liThresholdDisplay.textContent = `±${val.toFixed(2)}`;
+    hintRightVal.textContent = `+${val.toFixed(2)}`;
+    hintLeftVal.textContent = `-${val.toFixed(2)}`;
 
-    // Position threshold marker line: (100 - threshold)% from left
-    const thresholdPositionPct = 100.0 - val;
-    thresholdLine.style.left = `${thresholdPositionPct}%`;
+    // Update threshold line positions on LI track:
+    // Left line = ((-val + 1) / 2) * 100%
+    // Right line = ((val + 1) / 2) * 100%
+    const leftLinePct = ((-val + 1.0) / 2.0) * 100.0;
+    const rightLinePct = ((val + 1.0) / 2.0) * 100.0;
+    threshLeftLine.style.left = `${leftLinePct}%`;
+    threshRightLine.style.left = `${rightLinePct}%`;
 
-    socket.emit('set-threshold', val);
+    socket.emit('set-li-threshold', val);
   });
 
-  // Set initial threshold line position
-  thresholdLine.style.left = `${100.0 - currentThreshold}%`;
-
-  // 3. Audio Toggle
   audioToggleBtn.addEventListener('click', () => {
     isAudioEnabled = !isAudioEnabled;
     audioIcon.textContent = isAudioEnabled ? '🔊' : '🔇';
-    audioToggleBtn.title = isAudioEnabled ? 'Audio Alerts Enabled' : 'Audio Alerts Muted';
-    appendLog('system-msg', `Audio alerts ${isAudioEnabled ? 'enabled' : 'muted'}.`);
+    appendLog('system-msg', `Stereo audio feedback ${isAudioEnabled ? 'enabled' : 'muted'}.`);
   });
 
-  // 4. Clear Log Button
   clearLogBtn.addEventListener('click', () => {
     logStream.innerHTML = '';
     appendLog('system-msg', 'Log cleared.');
   });
 
-  // Helper: Append entry to log stream
   function appendLog(typeClass, text) {
     const now = new Date();
     const timeStr = now.toTimeString().split(' ')[0] + '.' + String(now.getMilliseconds()).padStart(3, '0');
@@ -471,13 +442,8 @@
     logStream.appendChild(entry);
     logStream.scrollTop = logStream.scrollHeight;
 
-    // Prune log entries if exceeding 100
     while (logStream.children.length > 100) {
       logStream.removeChild(logStream.firstChild);
     }
   }
-
-  // Log initial welcome
-  appendLog('system-msg', 'BCI Telemetry Dashboard initialized. Waiting for EEG UDP stream...');
 })();
-

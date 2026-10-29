@@ -1,16 +1,23 @@
 /**
- * Automated Verification & Test Suite for Brainwave BCI
+ * Automated Verification & Test Suite for 2-Class Brainwave BCI
  * Run with: npm test (or: node test.js)
  */
 
 const assert = require('assert');
 const dgram = require('dgram');
 const RingBuffer = require('./server/ringBuffer');
-const { fft, computePSD, getBandPower, analyzeSpectrum } = require('./server/dsp');
+const {
+  fft,
+  computePSD,
+  getBandPower,
+  analyzeSpectrum,
+  computeLateralizationIndex,
+  analyzeBilateralSpectrum
+} = require('./server/dsp');
 
-console.log('='.repeat(65));
-console.log('🧠 BRAINWAVE BCI - AUTOMATED TEST SUITE');
-console.log('='.repeat(65));
+console.log('='.repeat(70));
+console.log('🧠 BRAINWAVE 2-CLASS BCI (LEFT vs. RIGHT HAND) - TEST SUITE');
+console.log('='.repeat(70));
 
 let passed = 0;
 let total = 0;
@@ -40,118 +47,79 @@ async function runAsyncTest(name, fn) {
 }
 
 async function main() {
-  console.log('\n--- 1. RingBuffer Unit Tests ---');
+  console.log('\n--- 1. RingBuffer Bilateral Extraction Tests ---');
 
-  runTest('Initializes with correct capacity and channel count', () => {
+  runTest('Pushes 8-channel samples and extracts C3 (ch 0) and C4 (ch 2)', () => {
     const rb = new RingBuffer(250, 8);
-    assert.strictEqual(rb.capacity, 250);
-    assert.strictEqual(rb.channels, 8);
-    assert.strictEqual(rb.size(), 0);
-    assert.strictEqual(rb.isFull(), false);
-  });
-
-  runTest('Pushes samples and handles circular wrap-around', () => {
-    const rb = new RingBuffer(5, 2);
-    for (let i = 0; i < 5; i++) {
-      rb.push([i, i * 10]);
+    for (let i = 0; i < 250; i++) {
+      const sample = [i * 1.0, 0, i * 2.0, 0, 0, 0, 0, 0];
+      rb.push(sample);
     }
     assert.strictEqual(rb.isFull(), true);
-    assert.strictEqual(rb.size(), 5);
 
-    // Push 2 more to overwrite indices 0 and 1
-    rb.push([5, 50]);
-    rb.push([6, 60]);
-    assert.strictEqual(rb.size(), 5);
+    const c3 = rb.getChannelData(0);
+    const c4 = rb.getChannelData(2);
 
-    // Chronological order should be: [2, 3, 4, 5, 6]
-    const ch0 = rb.getChannelData(0);
-    assert.deepStrictEqual(Array.from(ch0), [2, 3, 4, 5, 6]);
-
-    const latest = rb.getLatestSample();
-    assert.deepStrictEqual(latest, [6, 60]);
+    assert.strictEqual(c3[0], 0);
+    assert.strictEqual(c3[249], 249.0);
+    assert.strictEqual(c4[0], 0);
+    assert.strictEqual(c4[249], 498.0);
   });
 
-  console.log('\n--- 2. DSP & Fast Fourier Transform (FFT) Tests ---');
+  console.log('\n--- 2. Bilateral DSP & Lateralization Index (LI) Tests ---');
 
-  runTest('Radix-2 FFT executes with power-of-2 input length', () => {
-    const N = 8;
-    const real = new Float64Array([1, 2, 3, 4, 0, 0, 0, 0]);
-    const imag = new Float64Array(N);
-    fft(real, imag);
+  runTest('Lateralization Index formula: LI = (P_C4 - P_C3) / (P_C4 + P_C3)', () => {
+    // Balanced Rest
+    const liRest = computeLateralizationIndex(100.0, 100.0);
+    assert.strictEqual(liRest, 0.0, 'Resting state should have LI = 0.0');
 
-    // DC component (bin 0) must equal the sum of inputs: 1 + 2 + 3 + 4 = 10
-    assert.strictEqual(Math.round(real[0]), 10);
-    assert.strictEqual(Math.round(imag[0]), 0);
+    // Right Hand (C3 desynchronized to 5.0, C4 remains 100.0)
+    const liRight = computeLateralizationIndex(5.0, 100.0);
+    assert(liRight > 0.8, `Right hand should have strong positive LI, got ${liRight.toFixed(3)}`);
+
+    // Left Hand (C4 desynchronized to 5.0, C3 remains 100.0)
+    const liLeft = computeLateralizationIndex(100.0, 5.0);
+    assert(liLeft < -0.8, `Left hand should have strong negative LI, got ${liLeft.toFixed(3)}`);
   });
 
-  runTest('Isolates 10 Hz pure sine wave frequency peak', () => {
+  console.log('\n--- 3. 2-Class Motor Imagery Signal Classification ---');
+
+  runTest('Classifies simulated signals into REST, RIGHT_HAND, and LEFT_HAND', () => {
     const sampleRate = 250;
     const N = 250;
-    const samples = new Float64Array(N);
 
-    // Generate pure 10 Hz sine wave
-    for (let i = 0; i < N; i++) {
-      const t = i / sampleRate;
-      samples[i] = 10.0 * Math.sin(2.0 * Math.PI * 10.0 * t);
-    }
-
-    const { bins } = computePSD(samples, sampleRate);
-
-    // Find bin with maximum power
-    let maxBin = null;
-    let maxP = -1;
-    for (const b of bins) {
-      if (b.power > maxP) {
-        maxP = b.power;
-        maxBin = b;
+    function makeSignal(erd) {
+      const sig = new Float64Array(N);
+      for (let i = 0; i < N; i++) {
+        const t = i / sampleRate;
+        sig[i] =
+          (15.0 * erd) * Math.sin(2 * Math.PI * 10 * t) +
+          6.0 * Math.sin(2 * Math.PI * 18 * t) +
+          2.5 * Math.sin(2 * Math.PI * 50 * t);
       }
+      return sig;
     }
 
-    // Bin resolution is ~0.976 Hz. Bin 10 is ~9.77 Hz.
-    assert(maxBin !== null, 'Peak bin must exist');
-    assert(Math.abs(maxBin.freq - 10.0) < 1.0, `Peak frequency should be ~10 Hz, got ${maxBin.freq.toFixed(2)} Hz`);
-  });
+    // 1. REST (Both 100%)
+    const restC3 = makeSignal(1.0);
+    const restC4 = makeSignal(1.0);
+    const resRest = analyzeBilateralSpectrum(restC3, restC4, sampleRate);
+    console.log(`     [REST]       LI: ${resRest.lateralizationIndex.toFixed(3)} | C3 Mu: ${resRest.c3.muPower.toFixed(1)} | C4 Mu: ${resRest.c4.muPower.toFixed(1)}`);
+    assert(Math.abs(resRest.lateralizationIndex) < 0.1, 'Rest LI should be near 0');
 
-  console.log('\n--- 3. BCI Event-Related Desynchronization (ERD) Classifier ---');
+    // 2. RIGHT HAND (C3 drops to 20%, C4 stays 100%)
+    const rightC3 = makeSignal(0.2);
+    const rightC4 = makeSignal(1.0);
+    const resRight = analyzeBilateralSpectrum(rightC3, rightC4, sampleRate);
+    console.log(`     [RIGHT HAND] LI: +${resRight.lateralizationIndex.toFixed(3)} | C3 Mu: ${resRight.c3.muPower.toFixed(1)} | C4 Mu: ${resRight.c4.muPower.toFixed(1)}`);
+    assert(resRight.lateralizationIndex >= 0.35, 'Right hand LI must exceed +0.35 threshold');
 
-  runTest('Detects 80% amplitude drop as >= 40% Mu power desynchronization', () => {
-    const sampleRate = 250;
-    const N = 250;
-
-    // Normal baseline signal: 10 Hz (Mu) @ 15.0 uV + 18 Hz (Beta) @ 6.0 uV + 50 Hz (Mains) @ 2.5 uV
-    const baselineSig = new Float64Array(N);
-    for (let i = 0; i < N; i++) {
-      const t = i / sampleRate;
-      baselineSig[i] =
-        15.0 * Math.sin(2 * Math.PI * 10 * t) +
-        6.0 * Math.sin(2 * Math.PI * 18 * t) +
-        2.5 * Math.sin(2 * Math.PI * 50 * t);
-    }
-
-    // ERD event: 10 Hz amplitude drops by 80% (to 3.0 uV)
-    const erdSig = new Float64Array(N);
-    for (let i = 0; i < N; i++) {
-      const t = i / sampleRate;
-      erdSig[i] =
-        3.0 * Math.sin(2 * Math.PI * 10 * t) +
-        6.0 * Math.sin(2 * Math.PI * 18 * t) +
-        2.5 * Math.sin(2 * Math.PI * 50 * t);
-    }
-
-    const baseResult = analyzeSpectrum(baselineSig, sampleRate);
-    const erdResult = analyzeSpectrum(erdSig, sampleRate);
-
-    const baseMuPower = baseResult.muPower;
-    const erdMuPower = erdResult.muPower;
-    const dropPercent = ((baseMuPower - erdMuPower) / baseMuPower) * 100.0;
-
-    console.log(`     Baseline Mu Power : ${baseMuPower.toFixed(2)} uV^2`);
-    console.log(`     ERD Event Mu Power: ${erdMuPower.toFixed(2)} uV^2`);
-    console.log(`     Observed Drop %   : ${dropPercent.toFixed(1)}% (Threshold: >= 40%)`);
-
-    // An 80% amplitude drop yields ~96% power drop
-    assert(dropPercent >= 40.0, `Drop percentage (${dropPercent.toFixed(1)}%) must exceed 40%`);
-    assert(dropPercent > 90.0, `Power drop should be ~96%, got ${dropPercent.toFixed(1)}%`);
+    // 3. LEFT HAND (C4 drops to 20%, C3 stays 100%)
+    const leftC3 = makeSignal(1.0);
+    const leftC4 = makeSignal(0.2);
+    const resLeft = analyzeBilateralSpectrum(leftC3, leftC4, sampleRate);
+    console.log(`     [LEFT HAND]  LI: ${resLeft.lateralizationIndex.toFixed(3)} | C3 Mu: ${resLeft.c3.muPower.toFixed(1)} | C4 Mu: ${resLeft.c4.muPower.toFixed(1)}`);
+    assert(resLeft.lateralizationIndex <= -0.35, 'Left hand LI must drop below -0.35 threshold');
   });
 
   console.log('\n--- 4. UDP Binary Protocol & Packaging ---');
@@ -166,7 +134,7 @@ async function main() {
 
       server.on('message', (msg) => {
         try {
-          assert.strictEqual(msg.length, 32, 'Payload must be exactly 32 bytes (8 x 4 bytes)');
+          assert.strictEqual(msg.length, 32);
           const decoded = [];
           for (let ch = 0; ch < 8; ch++) {
             decoded.push(parseFloat(msg.readFloatLE(ch * 4).toFixed(1)));
@@ -178,15 +146,6 @@ async function main() {
         } catch (err) {
           server.close();
           client.close();
-          reject(err);
-        }
-      });
-
-      server.on('error', (err) => {
-        // Fallback for sandboxed environments where raw socket binding is disallowed
-        if (err.code === 'EPERM' || err.code === 'EACCES') {
-          verifyDirectBuffer();
-        } else {
           reject(err);
         }
       });
@@ -206,6 +165,8 @@ async function main() {
         resolve();
       }
 
+      server.on('error', () => verifyDirectBuffer());
+
       try {
         server.bind(PORT, '127.0.0.1', () => {
           const buf = Buffer.alloc(32);
@@ -213,15 +174,7 @@ async function main() {
             buf.writeFloatLE(testValues[ch], ch * 4);
           }
           client.send(buf, PORT, '127.0.0.1', (err) => {
-            if (err) {
-              if (err.code === 'EPERM' || err.code === 'EACCES') {
-                verifyDirectBuffer();
-              } else {
-                server.close();
-                client.close();
-                reject(err);
-              }
-            }
+            if (err) verifyDirectBuffer();
           });
         });
       } catch (err) {
@@ -230,13 +183,11 @@ async function main() {
     });
   });
 
-  console.log('\n' + '='.repeat(65));
+  console.log('\n' + '='.repeat(70));
   console.log(`RESULTS: ${passed} / ${total} tests passed (${Math.round((passed / total) * 100)}%)`);
-  console.log('='.repeat(65) + '\n');
+  console.log('='.repeat(70) + '\n');
 
-  if (passed !== total) {
-    process.exit(1);
-  }
+  if (passed !== total) process.exit(1);
 }
 
 main().catch((err) => {

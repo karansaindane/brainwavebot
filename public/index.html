@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Brainwave BCI — Real-time EEG & Motor Imagery Telemetry</title>
+  <title>Brainwave BCI — 2-Class Motor Imagery (Left Hand vs. Right Hand)</title>
   <link rel="stylesheet" href="style.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -11,7 +11,7 @@
 </head>
 <body>
   <div class="app-container">
-    <!-- Top Header -->
+    <!-- Header -->
     <header class="app-header">
       <div class="header-left">
         <div class="logo-icon">
@@ -20,8 +20,8 @@
           </svg>
         </div>
         <div class="brand-info">
-          <h1>BRAINWAVE // BCI MVP</h1>
-          <span class="subtitle">Synthetic 8-Channel EEG • Real-Time DSP • Motor Imagery Classifier</span>
+          <h1>BRAINWAVE // 2-CLASS BCI</h1>
+          <span class="subtitle">Bilateral C3 & C4 Telemetry • Lateralization Index • Left vs. Right Hand</span>
         </div>
       </div>
 
@@ -37,145 +37,206 @@
           <span class="status-val" id="udpStatus">0 Hz</span>
         </div>
         <div class="header-actions">
-          <button id="calibrateBtn" class="btn btn-secondary" title="Re-calibrate Mu Baseline Power">
+          <button id="calibrateBtn" class="btn btn-secondary" title="Re-calibrate Bilateral Baselines">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
             </svg>
-            Calibrate Baseline
+            Calibrate Baselines
           </button>
-          <button id="audioToggleBtn" class="btn btn-icon" title="Toggle Audio Activation Alert">
+          <button id="audioToggleBtn" class="btn btn-icon" title="Toggle Stereo Audio Feedback">
             <span id="audioIcon">🔊</span>
           </button>
         </div>
       </div>
     </header>
 
-    <!-- Main Content Layout -->
+    <!-- Main Content -->
     <main class="dashboard-main">
-      <!-- High-Impact Motor Imagery Event Trigger Banner -->
-      <section class="alert-section">
-        <div class="action-alert-box" id="actionAlertBox">
-          <div class="alert-indicator-glow"></div>
-          <div class="alert-icon-wrap">
-            <div class="pulse-ring"></div>
-            <span class="alert-icon-symbol" id="alertSymbol">⚡</span>
-          </div>
-          <div class="alert-content">
-            <div class="alert-badge" id="alertBadge">REST STATE</div>
-            <h2 class="alert-title" id="alertTitle">SENSORIMOTOR RHYTHM INTACT</h2>
-            <p class="alert-desc" id="alertDesc">
-              Channel 1 (C3 Motor Cortex) exhibits synchronous 10 Hz Alpha/Mu oscillations.
-            </p>
-          </div>
-          <div class="alert-metrics">
-            <div class="metric-block">
-              <span class="metric-label">ERD DESYNCHRONIZATION</span>
-              <span class="metric-value highlight" id="erdPercentVal">0.0%</span>
+      <!-- 3-Way Directional Motor Imagery HUD -->
+      <section class="directional-hud-section">
+        <div class="directional-hud-box" id="directionalHudBox">
+          <!-- Left Hand Action Box -->
+          <div class="action-card action-left" id="cardLeftHand">
+            <div class="action-icon-wrap">
+              <span class="action-arrow">⬅</span>
             </div>
-            <div class="metric-block">
-              <span class="metric-label">EVENT COUNTER</span>
-              <span class="metric-value" id="eventCountVal">0</span>
+            <div class="action-info">
+              <div class="action-badge">RIGHT BRAIN (C4 ERD)</div>
+              <h3>LEFT HAND</h3>
+              <span class="action-subtext">C4 Mu Power Drop</span>
             </div>
-            <div class="metric-block">
-              <span class="metric-label">THRESHOLD</span>
-              <span class="metric-value" id="thresholdDisplay">40.0%</span>
+            <div class="action-stat" id="statLeftDrop">0.0%</div>
+          </div>
+
+          <!-- Center Rest / Balance Box -->
+          <div class="action-card action-rest active" id="cardRest">
+            <div class="action-icon-wrap">
+              <span class="action-arrow">⚖</span>
+            </div>
+            <div class="action-info">
+              <div class="action-badge">BILATERAL REST</div>
+              <h3>REST / IDLE</h3>
+              <span class="action-subtext">Balanced Sensorimotor Rhythms</span>
+            </div>
+            <div class="action-stat" id="statRestStatus">BALANCED</div>
+          </div>
+
+          <!-- Right Hand Action Box -->
+          <div class="action-card action-right" id="cardRightHand">
+            <div class="action-icon-wrap">
+              <span class="action-arrow">➔</span>
+            </div>
+            <div class="action-info">
+              <div class="action-badge">LEFT BRAIN (C3 ERD)</div>
+              <h3>RIGHT HAND</h3>
+              <span class="action-subtext">C3 Mu Power Drop</span>
+            </div>
+            <div class="action-stat" id="statRightDrop">0.0%</div>
+          </div>
+        </div>
+
+        <!-- Lateralization Index Balance Meter -->
+        <div class="li-meter-card">
+          <div class="li-header">
+            <div class="li-title-group">
+              <span class="li-label">HEMISPHERIC LATERALIZATION INDEX (LI):</span>
+              <span class="li-value" id="liValueDisplay">0.000</span>
+            </div>
+            <div class="li-stats-group">
+              <span>Threshold: <strong id="liThresholdDisplay">±0.35</strong></span>
+              <span>Right Hand Events: <strong id="countRightVal">0</strong></span>
+              <span>Left Hand Events: <strong id="countLeftVal">0</strong></span>
+            </div>
+          </div>
+
+          <div class="li-track-wrap">
+            <div class="li-labels">
+              <span>⬅ LEFT HAND (LI &le; -0.35)</span>
+              <span>CENTER REST (LI &approx; 0.0)</span>
+              <span>RIGHT HAND (LI &ge; +0.35) ➔</span>
+            </div>
+            <div class="li-track">
+              <!-- Threshold marker zones -->
+              <div class="li-zone zone-left" title="Left Hand Trigger Zone"></div>
+              <div class="li-zone zone-center"></div>
+              <div class="li-zone zone-right" title="Right Hand Trigger Zone"></div>
+
+              <!-- Center zero divider -->
+              <div class="li-zero-line"></div>
+
+              <!-- Threshold dashed lines -->
+              <div class="li-threshold-line thresh-left" id="threshLeftLine" style="left: 32.5%;"></div>
+              <div class="li-threshold-line thresh-right" id="threshRightLine" style="left: 67.5%;"></div>
+
+              <!-- Dynamic Cursor / Needle -->
+              <div class="li-needle" id="liNeedle" style="left: 50%;">
+                <div class="needle-tip"></div>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- Primary Telemetry Grid -->
+      <!-- Primary Telemetry Grid: Dual Waveform Oscilloscope & Dual Mu Meters -->
       <section class="telemetry-grid">
-        <!-- Live Waveform Chart (Channel 1 - C3) -->
+        <!-- Dual Waveform Canvas (C3 & C4) -->
         <div class="card chart-card">
           <div class="card-header">
             <div class="card-title-group">
-              <span class="channel-tag">CH 1</span>
-              <h3>RAW EEG WAVEFORM (C3 - CONTRALATERAL MOTOR CORTEX)</h3>
+              <span class="channel-tag c3-tag">CH 1: C3 (LEFT)</span>
+              <span class="channel-tag c4-tag">CH 3: C4 (RIGHT)</span>
+              <h3>BILATERAL MOTOR CORTEX EEG OSCILLOSCOPE</h3>
             </div>
-            <div class="chart-telemetry-readout">
-              <span class="readout-label">VOLTAGE:</span>
-              <span class="readout-val" id="voltageDisplay">+0.00 µV</span>
+            <div class="chart-dual-readout">
+              <span class="readout-c3" id="c3VoltDisplay">C3: +0.00 µV</span>
+              <span class="readout-c4" id="c4VoltDisplay">C4: +0.00 µV</span>
             </div>
           </div>
 
           <div class="canvas-container">
-            <canvas id="eegCanvas" width="900" height="260"></canvas>
+            <canvas id="eegCanvas" width="900" height="270"></canvas>
             <div class="canvas-overlay-scale">
               <span>+40 µV</span>
               <span>0 µV</span>
               <span>-40 µV</span>
             </div>
+            <div class="canvas-legend">
+              <span class="legend-item"><span class="legend-color c3-color"></span> C3 (Left Brain / Right Hand)</span>
+              <span class="legend-item"><span class="legend-color c4-color"></span> C4 (Right Brain / Left Hand)</span>
+            </div>
           </div>
 
           <div class="card-footer-info">
-            <div class="info-pill">Window: 1.0s (250 Samples)</div>
-            <div class="info-pill">Signal Mix: 10Hz Mu + 18Hz Beta + 50Hz Mains</div>
-            <div class="info-pill" id="erdHighlightLabel">State: Idle</div>
+            <div class="info-pill">Sampling: 250 Hz (Bilateral 1.0s Window)</div>
+            <div class="info-pill" id="currentActionLabel">Current State: REST</div>
           </div>
         </div>
 
-        <!-- Mu Band Power Meter & Classifier Control -->
+        <!-- Dual Mu Band Power Gauges (C3 vs C4) -->
         <div class="card meter-card">
           <div class="card-header">
-            <h3>MU BAND POWER (8 - 12 Hz)</h3>
-            <span class="dsp-tag">FFT DSP</span>
+            <h3>BILATERAL MU POWER (8 - 12 Hz)</h3>
+            <span class="dsp-tag">DUAL FFT</span>
           </div>
 
           <div class="meter-body">
-            <!-- Digital Readouts -->
-            <div class="stats-row">
-              <div class="stat-box">
-                <span class="stat-label">CURRENT MU POWER</span>
-                <span class="stat-num" id="currentMuDisplay">0.00</span>
-                <span class="stat-unit">µV² / Hz</span>
-              </div>
-              <div class="stat-box">
-                <span class="stat-label">BASELINE AVERAGE</span>
-                <span class="stat-num" id="baselineMuDisplay">0.00</span>
-                <span class="stat-unit">µV² / Hz</span>
-              </div>
-            </div>
-
-            <!-- Dynamic Gauge / Progress Bar -->
-            <div class="gauge-container">
-              <div class="gauge-labels">
-                <span>0 µV²</span>
-                <span id="thresholdMarkerLabel">Threshold (-40%)</span>
-                <span>Baseline (100%)</span>
+            <!-- Channel 1: C3 (Left Brain / Right Hand) Gauge -->
+            <div class="channel-power-block">
+              <div class="power-block-header">
+                <span class="power-label c3-text">C3 MU POWER (RIGHT HAND INTENT)</span>
+                <span class="power-stat" id="c3PowerVal">0.00 µV²</span>
               </div>
               <div class="gauge-track">
-                <div class="gauge-fill" id="gaugeFill" style="width: 50%;"></div>
-                <div class="threshold-line" id="thresholdLine" style="left: 60%;" title="Detection Threshold: -40% from baseline"></div>
+                <div class="gauge-fill c3-gauge-fill" id="c3GaugeFill" style="width: 50%;"></div>
+                <div class="threshold-line" id="c3ThreshLine" style="left: 65%;"></div>
+              </div>
+              <div class="power-meta">
+                <span>Baseline: <strong id="c3BaseVal">0.0</strong></span>
+                <span>Drop: <strong id="c3DropVal">0.0%</strong></span>
               </div>
             </div>
 
-            <!-- Interactive Sensitivity Slider -->
+            <!-- Channel 3: C4 (Right Brain / Left Hand) Gauge -->
+            <div class="channel-power-block">
+              <div class="power-block-header">
+                <span class="power-label c4-text">C4 MU POWER (LEFT HAND INTENT)</span>
+                <span class="power-stat" id="c4PowerVal">0.00 µV²</span>
+              </div>
+              <div class="gauge-track">
+                <div class="gauge-fill c4-gauge-fill" id="c4GaugeFill" style="width: 50%;"></div>
+                <div class="threshold-line" id="c4ThreshLine" style="left: 65%;"></div>
+              </div>
+              <div class="power-meta">
+                <span>Baseline: <strong id="c4BaseVal">0.0</strong></span>
+                <span>Drop: <strong id="c4DropVal">0.0%</strong></span>
+              </div>
+            </div>
+
+            <!-- Lateralization Sensitivity Slider -->
             <div class="slider-control-group">
               <div class="slider-header">
-                <label for="thresholdSlider">Detection Sensitivity (Drop %):</label>
-                <span class="slider-value" id="thresholdSliderVal">40%</span>
+                <label for="liSlider">Lateralization Index Sensitivity (±LI):</label>
+                <span class="slider-value" id="liSliderVal">±0.35</span>
               </div>
-              <input type="range" id="thresholdSlider" min="15" max="75" value="40" step="5">
+              <input type="range" id="liSlider" min="0.20" max="0.65" value="0.35" step="0.05">
               <div class="slider-hint">
-                Triggers when Mu band power drops by ≥ <strong id="sliderHintVal">40%</strong> below baseline.
+                Triggers Right Hand when LI &ge; <strong id="hintRightVal">+0.35</strong>, Left Hand when LI &le; <strong id="hintLeftVal">-0.35</strong>.
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- Secondary Telemetry Grid: Spectrum & Multi-Channel -->
+      <!-- Secondary Telemetry Grid: Spectral Breakdown & 8-Channel HUD -->
       <section class="secondary-grid">
-        <!-- Frequency Bands Spectral Breakdown -->
+        <!-- Frequency Bands Breakdown (C3 vs C4) -->
         <div class="card spectrum-card">
           <div class="card-header">
-            <h3>BRAINWAVE FREQUENCY BANDS (CHANNEL 1)</h3>
-            <span class="dsp-tag">HANN WINDOW FFT</span>
+            <h3>HEMISPHERIC SPECTRAL POWER BREAKDOWN</h3>
+            <span class="dsp-tag">HANN FFT</span>
           </div>
 
           <div class="bands-bars-container">
-            <!-- Delta -->
             <div class="band-bar-row">
               <div class="band-info">
                 <span class="band-name">DELTA</span>
@@ -187,7 +248,6 @@
               <span class="band-power-val" id="deltaVal">0.0</span>
             </div>
 
-            <!-- Theta -->
             <div class="band-bar-row">
               <div class="band-info">
                 <span class="band-name">THETA</span>
@@ -199,7 +259,6 @@
               <span class="band-power-val" id="thetaVal">0.0</span>
             </div>
 
-            <!-- Mu / Alpha (Featured) -->
             <div class="band-bar-row featured">
               <div class="band-info">
                 <span class="band-name">MU / ALPHA 🎯</span>
@@ -211,7 +270,6 @@
               <span class="band-power-val featured-val" id="muVal">0.0</span>
             </div>
 
-            <!-- Beta -->
             <div class="band-bar-row">
               <div class="band-info">
                 <span class="band-name">BETA</span>
@@ -223,109 +281,71 @@
               <span class="band-power-val" id="betaVal">0.0</span>
             </div>
 
-            <!-- Gamma -->
-            <div class="band-bar-row">
-              <div class="band-info">
-                <span class="band-name">GAMMA</span>
-                <span class="band-freq">30 - 50 Hz</span>
-              </div>
-              <div class="band-bar-track">
-                <div class="band-bar-fill gamma-fill" id="gammaBar" style="width: 5%;"></div>
-              </div>
-              <span class="band-power-val" id="gammaVal">0.0</span>
-            </div>
-
-            <!-- Powerline Noise -->
             <div class="band-bar-row noise-row">
               <div class="band-info">
                 <span class="band-name">50Hz MAINS</span>
                 <span class="band-freq">48 - 52 Hz</span>
               </div>
               <div class="band-bar-track">
-                <div class="band-bar-fill noise-fill" id="mainsBar" style="width: 25%;"></div>
+                <div class="band-bar-fill noise-fill" id="mainsBar" style="width: 20%;"></div>
               </div>
               <span class="band-power-val" id="mainsVal">0.0</span>
             </div>
           </div>
         </div>
 
-        <!-- 8-Channel Headset Array Monitor -->
+        <!-- 8-Channel Electrode Array Monitor -->
         <div class="card channels-card">
           <div class="card-header">
             <h3>8-CHANNEL HEADSET ARRAY</h3>
             <span class="dsp-tag">250 Hz UDP</span>
           </div>
 
-          <div class="channels-grid" id="channelsGrid">
-            <!-- 8 channels dynamically populated or static slots -->
-            <div class="channel-slot active-ch" id="chSlot-0">
-              <div class="slot-header">
-                <span class="slot-name">CH 1 (C3)</span>
-                <span class="slot-state">MOTOR</span>
-              </div>
+          <div class="channels-grid">
+            <div class="channel-slot active-ch c3-slot">
+              <div class="slot-header"><span class="slot-name">CH 1 (C3)</span><span class="slot-state">R-HAND</span></div>
               <div class="slot-volt" id="chVolt-0">+0.0 µV</div>
-              <div class="slot-bar-track"><div class="slot-bar-fill" id="chFill-0"></div></div>
+              <div class="slot-bar-track"><div class="slot-bar-fill c3-slot-fill" id="chFill-0"></div></div>
             </div>
 
-            <div class="channel-slot" id="chSlot-1">
-              <div class="slot-header">
-                <span class="slot-name">CH 2 (Cz)</span>
-                <span class="slot-state">VERTEX</span>
-              </div>
+            <div class="channel-slot">
+              <div class="slot-header"><span class="slot-name">CH 2 (Cz)</span><span class="slot-state">VERTEX</span></div>
               <div class="slot-volt" id="chVolt-1">+0.0 µV</div>
               <div class="slot-bar-track"><div class="slot-bar-fill" id="chFill-1"></div></div>
             </div>
 
-            <div class="channel-slot" id="chSlot-2">
-              <div class="slot-header">
-                <span class="slot-name">CH 3 (C4)</span>
-                <span class="slot-state">MOTOR</span>
-              </div>
+            <div class="channel-slot active-ch c4-slot">
+              <div class="slot-header"><span class="slot-name">CH 3 (C4)</span><span class="slot-state">L-HAND</span></div>
               <div class="slot-volt" id="chVolt-2">+0.0 µV</div>
-              <div class="slot-bar-track"><div class="slot-bar-fill" id="chFill-2"></div></div>
+              <div class="slot-bar-track"><div class="slot-bar-fill c4-slot-fill" id="chFill-2"></div></div>
             </div>
 
-            <div class="channel-slot" id="chSlot-3">
-              <div class="slot-header">
-                <span class="slot-name">CH 4 (F3)</span>
-                <span class="slot-state">FRONTAL</span>
-              </div>
+            <div class="channel-slot">
+              <div class="slot-header"><span class="slot-name">CH 4 (F3)</span><span class="slot-state">FRONTAL</span></div>
               <div class="slot-volt" id="chVolt-3">+0.0 µV</div>
               <div class="slot-bar-track"><div class="slot-bar-fill" id="chFill-3"></div></div>
             </div>
 
-            <div class="channel-slot" id="chSlot-4">
-              <div class="slot-header">
-                <span class="slot-name">CH 5 (F4)</span>
-                <span class="slot-state">FRONTAL</span>
-              </div>
+            <div class="channel-slot">
+              <div class="slot-header"><span class="slot-name">CH 5 (F4)</span><span class="slot-state">FRONTAL</span></div>
               <div class="slot-volt" id="chVolt-4">+0.0 µV</div>
               <div class="slot-bar-track"><div class="slot-bar-fill" id="chFill-4"></div></div>
             </div>
 
-            <div class="channel-slot" id="chSlot-5">
-              <div class="slot-header">
-                <span class="slot-name">CH 6 (P3)</span>
-                <span class="slot-state">PARIETAL</span>
-              </div>
+            <div class="channel-slot">
+              <div class="slot-header"><span class="slot-name">CH 6 (P3)</span><span class="slot-state">PARIETAL</span></div>
               <div class="slot-volt" id="chVolt-5">+0.0 µV</div>
               <div class="slot-bar-track"><div class="slot-bar-fill" id="chFill-5"></div></div>
             </div>
 
-            <div class="channel-slot" id="chSlot-6">
-              <div class="slot-header">
-                <span class="slot-name">CH 7 (P4)</span>
-                <span class="slot-state">PARIETAL</span>
-              </div>
+            <div class="channel-slot">
+              <div class="slot-header"><span class="slot-name">CH 7 (P4)</span><span class="slot-state">PARIETAL</span></div>
               <div class="slot-volt" id="chVolt-6">+0.0 µV</div>
               <div class="slot-bar-track"><div class="slot-bar-fill" id="chFill-6"></div></div>
             </div>
 
-            <div class="channel-slot" id="chSlot-7">
-              <div class="slot-header">
-                <span class="slot-name">CH 8 (Oz)</span>
-                <span class="slot-state">OCCIPITAL</span>
-              </div>
+            <div class="channel-slot">
+              <div class="slot-header"><span class="slot-name">CH 8 (Oz)</span><span class="slot-state">OCCIPITAL</span></div>
               <div class="slot-volt" id="chVolt-7">+0.0 µV</div>
               <div class="slot-bar-track"><div class="slot-bar-fill" id="chFill-7"></div></div>
             </div>
@@ -336,13 +356,13 @@
       <!-- Event Activity Log -->
       <section class="card log-card">
         <div class="card-header">
-          <h3>BCI EVENT CLASSIFICATION LOG</h3>
+          <h3>2-CLASS BCI CLASSIFICATION LOG</h3>
           <button id="clearLogBtn" class="btn btn-sm">Clear History</button>
         </div>
         <div class="log-stream" id="logStream">
           <div class="log-entry system-msg">
             <span class="log-time">[System]</span>
-            <span class="log-text">Dashboard loaded. Connecting to Socket.io backend...</span>
+            <span class="log-text">2-Class BCI Dashboard initialized. Awaiting synthetic EEG stream...</span>
           </div>
         </div>
       </section>
@@ -354,18 +374,15 @@
         <span>Hardware Simulator: <code>python simulator/synthetic_headset.py</code></span>
       </div>
       <div class="footer-col">
-        <span>UDP Ingest: <code>127.0.0.1:3001</code> | Web Server: <code>http://localhost:3000</code></span>
+        <span>Classification: <strong>Lateralization Index LI = (P_C4 - P_C3) / (P_C4 + P_C3)</strong></span>
       </div>
       <div class="footer-col">
-        <span>DSP: Radix-2 FFT (256-pt, Hann window, 8-12 Hz Mu band)</span>
+        <span>Sites: <code>C3 (Ch 1)</code> vs <code>C4 (Ch 3)</code> @ 250 Hz</span>
       </div>
     </footer>
   </div>
 
-  <!-- Socket.io client script served by the backend -->
   <script src="/socket.io/socket.io.js"></script>
-  <!-- Main application script -->
   <script src="app.js"></script>
 </body>
 </html>
-

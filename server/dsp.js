@@ -12,6 +12,7 @@
  *     * Beta (12 - 30 Hz)
  *     * Gamma (30 - 50 Hz)
  *     * Powerline Noise (48 - 52 Hz)
+ * - Bilateral Lateralization Index (LI) for 2-class motor imagery (Left vs. Right)
  */
 
 /**
@@ -72,7 +73,6 @@ function fft(real, imag) {
         real[idx2] = uR - vR;
         imag[idx2] = uI - vI;
 
-        // Advance twiddle factor
         const nextWR = wR * wStepR - wI * wStepI;
         const nextWI = wR * wStepI + wI * wStepR;
         wR = nextWR;
@@ -94,7 +94,7 @@ for (let i = 0; i < 250; i++) {
  *
  * @param {Float64Array|number[]} samples - 250 raw EEG samples
  * @param {number} sampleRate - Sampling rate in Hz (default: 250)
- * @returns {{ bins: Array<{freq: number, power: number}>, totalPower: number }}
+ * @returns {{ bins: Array<{freq: number, power: number}>, totalPower: number, df: number }}
  */
 function computePSD(samples, sampleRate = 250) {
   const fftSize = 256;
@@ -108,12 +108,9 @@ function computePSD(samples, sampleRate = 250) {
     const win = i < HANN_CACHE.length ? HANN_CACHE[i] : 0.5 * (1 - Math.cos((2 * Math.PI * i) / (numSamples - 1)));
     real[i] = samples[i] * win;
   }
-  // Bins from numSamples to fftSize remain 0 (zero-padding)
 
-  // Execute in-place FFT
   fft(real, imag);
 
-  // Frequency resolution (Hz per bin)
   const df = sampleRate / fftSize; // 250 / 256 ~= 0.9765625 Hz
   const half = fftSize / 2;
   const bins = new Array(half);
@@ -121,7 +118,6 @@ function computePSD(samples, sampleRate = 250) {
 
   for (let k = 0; k < half; k++) {
     const freq = k * df;
-    // Power = magnitude squared / N
     const p = (real[k] * real[k] + imag[k] * imag[k]) / fftSize;
     bins[k] = { freq, power: p };
     totalPower += p;
@@ -132,11 +128,6 @@ function computePSD(samples, sampleRate = 250) {
 
 /**
  * Extract average power within a specific frequency band [minFreq, maxFreq]
- *
- * @param {Array<{freq: number, power: number}>} bins - PSD bins
- * @param {number} minFreq - Lower boundary in Hz
- * @param {number} maxFreq - Upper boundary in Hz
- * @returns {number} Average power in the band
  */
 function getBandPower(bins, minFreq, maxFreq) {
   let sum = 0;
@@ -154,35 +145,22 @@ function getBandPower(bins, minFreq, maxFreq) {
 }
 
 /**
- * Comprehensive EEG spectral breakdown
- *
- * @param {Float64Array|number[]} samples - 250 samples from EEG Channel 1
- * @param {number} sampleRate - Sampling frequency in Hz
- * @returns {object} Spectral powers and Mu band metric
+ * Spectral analysis for single EEG channel
  */
 function analyzeSpectrum(samples, sampleRate = 250) {
   const psd = computePSD(samples, sampleRate);
   const { bins } = psd;
 
-  // Extract canonical brainwave frequency bands
-  const delta = getBandPower(bins, 1.0, 4.0);    // 1-4 Hz
-  const theta = getBandPower(bins, 4.0, 8.0);    // 4-8 Hz
-  const mu    = getBandPower(bins, 8.0, 12.0);   // 8-12 Hz (Sensorimotor / Mu rhythm)
-  const beta  = getBandPower(bins, 12.0, 30.0);  // 12-30 Hz
-  const gamma = getBandPower(bins, 30.0, 50.0);  // 30-50 Hz
-  const mains = getBandPower(bins, 48.0, 52.0);  // 50 Hz Powerline artifact
+  const delta = getBandPower(bins, 1.0, 4.0);
+  const theta = getBandPower(bins, 4.0, 8.0);
+  const mu    = getBandPower(bins, 8.0, 12.0); // 8-12 Hz
+  const beta  = getBandPower(bins, 12.0, 30.0);
+  const gamma = getBandPower(bins, 30.0, 50.0);
+  const mains = getBandPower(bins, 48.0, 52.0);
 
   return {
     muPower: mu,
-    bandPowers: {
-      delta,
-      theta,
-      mu,
-      beta,
-      gamma,
-      mains
-    },
-    // Top 35 bins (up to ~34 Hz) for client-side visual spectrum
+    bandPowers: { delta, theta, mu, beta, gamma, mains },
     spectrumPreview: bins.slice(0, 35).map(b => ({
       freq: Math.round(b.freq * 10) / 10,
       power: Math.round(b.power * 100) / 100
@@ -190,10 +168,48 @@ function analyzeSpectrum(samples, sampleRate = 250) {
   };
 }
 
+/**
+ * Calculate the Lateralization Index (LI) between C3 (Left brain) and C4 (Right brain)
+ *
+ * Formula:
+ *   LI = (Power_C4 - Power_C3) / (Power_C4 + Power_C3)
+ *
+ * Interpretation:
+ *   - Rest: C3 ~= C4 -> LI ~= 0.0
+ *   - Right Hand Motor Imagery: C3 drops -> Power_C4 >> Power_C3 -> LI approaches +1.0
+ *   - Left Hand Motor Imagery: C4 drops -> Power_C3 >> Power_C4 -> LI approaches -1.0
+ *
+ * @param {number} c3MuPower - Mu power for C3 (Channel 1)
+ * @param {number} c4MuPower - Mu power for C4 (Channel 3)
+ * @returns {number} LI clamped to [-1.0, +1.0]
+ */
+function computeLateralizationIndex(c3MuPower, c4MuPower) {
+  const denom = c4MuPower + c3MuPower;
+  if (denom < 1e-6) return 0.0;
+  const rawLI = (c4MuPower - c3MuPower) / denom;
+  return Math.min(Math.max(rawLI, -1.0), 1.0);
+}
+
+/**
+ * Bilateral C3 & C4 spectral analysis for 2-class Motor Imagery
+ */
+function analyzeBilateralSpectrum(c3Samples, c4Samples, sampleRate = 250) {
+  const c3Result = analyzeSpectrum(c3Samples, sampleRate);
+  const c4Result = analyzeSpectrum(c4Samples, sampleRate);
+  const li = computeLateralizationIndex(c3Result.muPower, c4Result.muPower);
+
+  return {
+    c3: c3Result,
+    c4: c4Result,
+    lateralizationIndex: li
+  };
+}
+
 module.exports = {
   fft,
   computePSD,
   getBandPower,
-  analyzeSpectrum
+  analyzeSpectrum,
+  computeLateralizationIndex,
+  analyzeBilateralSpectrum
 };
-
